@@ -1,6 +1,18 @@
 import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 
+const NOTIFY_URL = "https://functions.poehali.dev/feb97d23-6732-4eb7-80fe-b9066124b115";
+
+async function sendToTelegram(data: Record<string, string>) {
+  const res = await fetch(NOTIFY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Ошибка отправки");
+  return res.json();
+}
+
 // ─── TABS ───────────────────────────────────────────────────────────────────
 const TABS = [
   { id: "dashboard", label: "Дашборд", icon: "LayoutDashboard" },
@@ -170,11 +182,14 @@ export default function Index() {
   const [showStartConfirm, setShowStartConfirm] = useState(false);
   const [showDailySummary, setShowDailySummary] = useState(false);
   const [showPortfolioStatus, setShowPortfolioStatus] = useState(false);
+  const [showBuyCrypto, setShowBuyCrypto] = useState(false);
 
   // Forms
   const [depositForm, setDepositForm] = useState({ name: "", amount: "", phone: "", comment: "" });
   const [tariffForm, setTariffForm] = useState({ name: "", email: "", phone: "", company: "" });
+  const [buyCryptoForm, setBuyCryptoForm] = useState({ name: "", phone: "", currency: "BTC", currency_amount: "", comment: "" });
   const [tgHandle, setTgHandle] = useState("");
+  const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   const showToast = (message: string, type: "success" | "error" | "info" = "success") => setToast({ message, type });
@@ -220,18 +235,44 @@ export default function Index() {
     showToast(`Позиция ${pos.pair} закрыта. P&L: ${pos.pnl > 0 ? "+" : ""}${pos.pnl.toFixed(2)} $`);
   };
 
-  const handleDepositSubmit = () => {
+  const handleDepositSubmit = async () => {
     if (!depositForm.name || !depositForm.amount || !depositForm.phone) { showToast("Заполните все обязательные поля", "error"); return; }
-    setShowDeposit(false);
-    setDepositForm({ name: "", amount: "", phone: "", comment: "" });
-    showToast("Заявка на пополнение отправлена! Ожидайте связи.");
+    setLoading(true);
+    try {
+      await sendToTelegram({ type: "deposit", ...depositForm });
+      setShowDeposit(false);
+      setDepositForm({ name: "", amount: "", phone: "", comment: "" });
+      showToast("Заявка на пополнение отправлена! Ожидайте связи.");
+    } catch {
+      showToast("Ошибка отправки. Попробуйте позже.", "error");
+    } finally { setLoading(false); }
   };
 
-  const handleTariffSubmit = () => {
+  const handleTariffSubmit = async () => {
     if (!tariffForm.name || !tariffForm.email || !tariffForm.phone) { showToast("Заполните все обязательные поля", "error"); return; }
-    setShowTariffForm(null);
-    setTariffForm({ name: "", email: "", phone: "", company: "" });
-    showToast("Заявка на тариф отправлена! Свяжемся с вами.");
+    const t = tariffs[showTariffForm ?? 1];
+    setLoading(true);
+    try {
+      await sendToTelegram({ type: "subscription", tariff: t.name, ...tariffForm });
+      setShowTariffForm(null);
+      setTariffForm({ name: "", email: "", phone: "", company: "" });
+      showToast("Заявка на тариф отправлена! Свяжемся с вами.");
+    } catch {
+      showToast("Ошибка отправки. Попробуйте позже.", "error");
+    } finally { setLoading(false); }
+  };
+
+  const handleBuyCryptoSubmit = async () => {
+    if (!buyCryptoForm.name || !buyCryptoForm.phone || !buyCryptoForm.currency_amount) { showToast("Заполните все обязательные поля", "error"); return; }
+    setLoading(true);
+    try {
+      await sendToTelegram({ type: "buy_currency", ...buyCryptoForm });
+      setShowBuyCrypto(false);
+      setBuyCryptoForm({ name: "", phone: "", currency: "BTC", currency_amount: "", comment: "" });
+      showToast(`Заявка на покупку ${buyCryptoForm.currency} отправлена!`);
+    } catch {
+      showToast("Ошибка отправки. Попробуйте позже.", "error");
+    } finally { setLoading(false); }
   };
 
   const handleTgConnect = () => {
@@ -321,6 +362,9 @@ export default function Index() {
               <div className="flex gap-2 mt-4">
                 <button onClick={() => setShowDeposit(true)} className="flex-1 py-2.5 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2">
                   <Icon name="Plus" size={16} /> Пополнить
+                </button>
+                <button onClick={() => setShowBuyCrypto(true)} className="flex-1 py-2.5 rounded-xl bg-surface-2 border border-profit/30 text-profit text-sm font-semibold flex items-center justify-center gap-2">
+                  <Icon name="ShoppingCart" size={16} /> Купить
                 </button>
                 <button onClick={() => setShowPortfolioStatus(true)} className="flex-1 py-2.5 rounded-xl bg-surface-2 text-foreground text-sm font-semibold flex items-center justify-center gap-2">
                   <Icon name="BarChart3" size={16} /> Статус
@@ -707,8 +751,18 @@ export default function Index() {
               </button>
             </div>
 
+            {/* Buy crypto */}
+            <div className="card-glass p-5 animate-fade-in" style={{ animationDelay: "380ms" }}>
+              <div className="font-semibold mb-1">Купить криптовалюту</div>
+              <div className="text-xs text-muted-foreground mb-3">Заявка на покупку BTC, ETH, SOL и других монет</div>
+              <button onClick={() => setShowBuyCrypto(true)}
+                className="w-full py-3 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2">
+                <Icon name="ShoppingCart" size={16} /> Купить криптовалюту
+              </button>
+            </div>
+
             {/* Deposit */}
-            <div className="card-glass p-5 animate-fade-in" style={{ animationDelay: "400ms" }}>
+            <div className="card-glass p-5 animate-fade-in" style={{ animationDelay: "420ms" }}>
               <div className="font-semibold mb-1">Пополнение баланса</div>
               <div className="text-xs text-muted-foreground mb-3">Форма заявки на пополнение торгового счёта</div>
               <button onClick={() => setShowDeposit(true)}
@@ -836,8 +890,9 @@ export default function Index() {
           <div className="bg-profit/5 border border-profit/20 rounded-xl p-3 mb-4 text-xs text-muted-foreground">
             После отправки заявки менеджер свяжется с вами для подтверждения реквизитов.
           </div>
-          <button onClick={handleDepositSubmit} className="w-full py-3 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2">
-            <Icon name="Send" size={15} /> Отправить заявку
+          <button onClick={handleDepositSubmit} disabled={loading}
+            className="w-full py-3 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+            {loading ? <><Icon name="Loader" size={15} className="animate-spin" /> Отправка...</> : <><Icon name="Send" size={15} /> Отправить заявку</>}
           </button>
         </Modal>
       )}
@@ -908,8 +963,9 @@ export default function Index() {
                 </div>
               )}
             </div>
-            <button onClick={handleTariffSubmit} className="w-full py-3 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2">
-              <Icon name="Send" size={15} /> Отправить заявку
+            <button onClick={handleTariffSubmit} disabled={loading}
+              className="w-full py-3 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+              {loading ? <><Icon name="Loader" size={15} className="animate-spin" /> Отправка...</> : <><Icon name="Send" size={15} /> Отправить заявку</>}
             </button>
           </Modal>
         );
@@ -1012,6 +1068,78 @@ export default function Index() {
             ))}
             <button onClick={() => setShowPortfolioStatus(false)} className="w-full py-3 rounded-xl bg-surface-2 text-foreground text-sm font-semibold mt-2">Закрыть</button>
           </div>
+        </Modal>
+      )}
+
+      {/* BUY CRYPTO */}
+      {showBuyCrypto && (
+        <Modal title="Купить криптовалюту" onClose={() => setShowBuyCrypto(false)}>
+          <div className="space-y-3 mb-4">
+            {/* Currency selector */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">Выберите валюту</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "BTC", label: "Bitcoin", icon: "₿" },
+                  { id: "ETH", label: "Ethereum", icon: "Ξ" },
+                  { id: "SOL", label: "Solana", icon: "◎" },
+                  { id: "BNB", label: "BNB", icon: "B" },
+                  { id: "XRP", label: "XRP", icon: "✕" },
+                  { id: "USDT", label: "Tether", icon: "₮" },
+                ].map(c => (
+                  <button key={c.id} onClick={() => setBuyCryptoForm(f => ({ ...f, currency: c.id }))}
+                    className={`flex flex-col items-center py-3 rounded-xl border text-xs font-semibold transition-all ${buyCryptoForm.currency === c.id ? "border-profit/50 bg-profit/10 text-profit" : "border-border bg-surface-2 text-muted-foreground"}`}>
+                    <span className="text-lg font-mono mb-0.5">{c.icon}</span>
+                    {c.id}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Сумма покупки (USDT) *</label>
+              <input value={buyCryptoForm.currency_amount} onChange={e => setBuyCryptoForm(f => ({ ...f, currency_amount: e.target.value }))}
+                placeholder="1000" type="number"
+                className="w-full bg-surface-2 border border-border rounded-xl px-4 py-3 text-sm font-mono outline-none focus:border-profit/50 transition-colors" />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Ваше имя *</label>
+              <input value={buyCryptoForm.name} onChange={e => setBuyCryptoForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Иван Иванов"
+                className="w-full bg-surface-2 border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-profit/50 transition-colors" />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Телефон *</label>
+              <input value={buyCryptoForm.phone} onChange={e => setBuyCryptoForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="+7 (999) 000-00-00"
+                className="w-full bg-surface-2 border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-profit/50 transition-colors" />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Комментарий</label>
+              <textarea value={buyCryptoForm.comment} onChange={e => setBuyCryptoForm(f => ({ ...f, comment: e.target.value }))}
+                placeholder="Дополнительные пожелания..." rows={2}
+                className="w-full bg-surface-2 border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-profit/50 transition-colors resize-none" />
+            </div>
+          </div>
+
+          {buyCryptoForm.currency_amount && (
+            <div className="bg-surface-2 rounded-xl p-3 mb-4 flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Вы покупаете</span>
+              <span className="font-mono font-bold text-profit">{buyCryptoForm.currency_amount} USDT → {buyCryptoForm.currency}</span>
+            </div>
+          )}
+
+          <div className="bg-profit/5 border border-profit/20 rounded-xl p-3 mb-4 text-xs text-muted-foreground">
+            После отправки заявки менеджер свяжется с вами и уточнит детали сделки.
+          </div>
+
+          <button onClick={handleBuyCryptoSubmit} disabled={loading}
+            className="w-full py-3 rounded-xl bg-profit text-background text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+            {loading ? <><Icon name="Loader" size={15} className="animate-spin" /> Отправка...</> : <><Icon name="ShoppingCart" size={15} /> Купить {buyCryptoForm.currency}</>}
+          </button>
         </Modal>
       )}
     </div>
